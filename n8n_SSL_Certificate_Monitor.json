@@ -1,0 +1,299 @@
+{
+  "name": "n8n SSL Certificate Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "91939892-dc00-443f-8d0d-de24b740ea73",
+              "leftValue": "={{ $json.enviar }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3040,
+        1152
+      ],
+      "id": "8fa48fe3-d7c4-467e-b84c-ae2ab271baf8",
+      "name": "If"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        3296,
+        1296
+      ],
+      "id": "864baf20-87d2-452a-bd13-ff2bfd0689db",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 10
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        2176,
+        1152
+      ],
+      "id": "df25f981-51b3-4c01-b5c8-5556033a9b63",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "content": "## Daily check at 10:00 to send alerts for certificates expiring in 15, 10, 5, and 1 day, as well as those already expired (less than 0 days remaining)",
+        "height": 432,
+        "width": 1456,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2096,
+        1024
+      ],
+      "typeVersion": 1,
+      "id": "eeb452ec-b2ff-4ba7-9f2b-7e7be9c01d76",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nif (!items || items.length === 0) {\n  return [{ json: { enviar: false, message: null } }];\n}\n\n// ── 1. Gatilho: existe algum cert nos marcos exatos? ──────────────────────────\nconst MARCOS = new Set([15, 10, 5, 1]);\n\nconst gatilhoDisparou = items.some(({ json: r }) => {\n  if (r.daysLeft === null || r.daysLeft === undefined) return false;\n  if (r.daysLeft <= 0) return true;          // vencido\n  return MARCOS.has(r.daysLeft);             // exatamente 15, 10, 5 ou 1\n});\n\nif (!gatilhoDisparou) {\n  return [{ json: { enviar: false, message: null } }];\n}\n\n// ── 2. Conteúdo: todos em zona de alerta (daysLeft ≤ 15 ou vencido) ───────────\nconst emAlerta = items\n  .map(i => i.json)\n  .filter(r => r.daysLeft !== null && r.daysLeft !== undefined && r.daysLeft <= 15)\n  .sort((a, b) => a.daysLeft - b.daysLeft);  // mais urgente primeiro\n\n// ── 3. Emoji por severidade ───────────────────────────────────────────────────\nfunction getEmoji(r) {\n  if (r.mismatch)      return '🔀';\n  if (r.daysLeft <= 0) return '🔴';\n  if (r.daysLeft <= 5) return '🚨';\n  if (r.daysLeft <= 10) return '⚠️';\n  return '📅';\n}\n\n// ── 4. Resumo por categoria ───────────────────────────────────────────────────\nconst c = (fn) => emAlerta.filter(fn).length;\nconst resumo = [\n  c(r => r.mismatch) > 0                                      ? `🔀 Mismatch: ${c(r => r.mismatch)}` : null,\n  c(r => !r.mismatch && r.daysLeft <= 0) > 0                  ? `🔴 Vencidos: ${c(r => !r.mismatch && r.daysLeft <= 0)}` : null,\n  c(r => !r.mismatch && r.daysLeft > 0 && r.daysLeft <= 5) > 0  ? `🚨 Críticos ≤5d: ${c(r => !r.mismatch && r.daysLeft > 0 && r.daysLeft <= 5)}` : null,\n  c(r => !r.mismatch && r.daysLeft > 5 && r.daysLeft <= 10) > 0 ? `⚠️ Atenção ≤10d: ${c(r => !r.mismatch && r.daysLeft > 5 && r.daysLeft <= 10)}` : null,\n  c(r => !r.mismatch && r.daysLeft > 10 && r.daysLeft <= 15) > 0 ? `📅 Aviso ≤15d: ${c(r => !r.mismatch && r.daysLeft > 10 && r.daysLeft <= 15)}` : null,\n].filter(Boolean).join(' | ');\n\n// ── 5. Linhas por domínio ─────────────────────────────────────────────────────\nconst now = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });\n\nconst linhas = emAlerta.map(r => {\n  const portaLabel  = r.port !== 443 ? ` ⚡ porta ${r.port}` : ' (443)';\n  const diasStr     = r.daysLeft <= 0\n    ? `vencido há ${Math.abs(r.daysLeft)} dia(s)`\n    : `${r.daysLeft} dia(s)`;\n  const mismatchStr = r.mismatch\n    ? `\\n   ⚠️ *Mismatch: cert NÃO cobre este domínio!*\\n   Cert CN : ${r.certCN || '—'}`\n    : '';\n\n  return (\n    `${getEmoji(r)} *${r.hostname}*${portaLabel}\\n` +\n    `   Status  : ${r.status}\\n` +\n    `   Validade: ${r.validTo ?? '—'}\\n` +\n    `   Faltam  : ${diasStr}` +\n    mismatchStr\n  );\n});\n\n// ── 6. Monta mensagem final ───────────────────────────────────────────────────\nconst message =\n  `🔐 *Alerta SSL*\\n` +\n  `🕐 ${now}\\n` +\n  `📋 ${emAlerta.length} domínio(s) em alerta\\n` +\n  `${resumo}\\n` +\n  `${'─'.repeat(32)}\\n\\n` +\n  linhas.join('\\n\\n');\n\nreturn [{ json: { enviar: true, message } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2848,
+        1152
+      ],
+      "id": "2ee6b083-46ce-4195-bbf6-19bc579840e6",
+      "name": "Filter"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_DOCUMENT_ID",
+          "mode": "list",
+          "cachedResultName": "Lista SSL",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/REPLACE_WITH_YOUR_GOOGLE_SHEETS_DOCUMENT_ID/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Página1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/REPLACE_WITH_YOUR_GOOGLE_SHEETS_DOCUMENT_ID/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2416,
+        1152
+      ],
+      "id": "c583f217-a351-4de8-a7f2-cffe9e10e6cc",
+      "name": "Get List SSL",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR_UAZAPI_INSTANCE.uazapi.com/send/text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "number",
+              "value": "55XXXXXXXXXXX"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.message }}\n\n"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d53d9dc3-c4d2-49b9-94c6-1767b1fc1729",
+      "name": "Send MSG",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3296,
+        1120
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_YOUR_UAZAPI_CREDENTIAL_ID",
+          "name": "token_uazapi"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const tls = require('tls');\nconst items = $input.all();\n\nif (!items || items.length === 0) {\n  return [{ json: { message: '⚠️ Nenhum domínio encontrado na planilha.' } }];\n}\n\nfunction getPort(row) {\n  const key = Object.keys(row).find(k => k.toLowerCase() === 'porta');\n  const raw = key ? row[key] : undefined;\n  const parsed = parseInt(raw);\n  return (raw !== undefined && raw !== null && raw !== '' && !isNaN(parsed) && parsed > 0 && parsed <= 65535)\n    ? parsed\n    : 443;\n}\n\nfunction isIP(host) {\n  return /^(\\d{1,3}\\.){3}\\d{1,3}$/.test(host) || host.includes(':');\n}\n\nfunction checkSSL(rawHostname, port) {\n  return new Promise((resolve) => {\n    const hostname = String(rawHostname).replace(/^https?:\\/\\//i, '').split('/')[0].trim();\n    const hostIsIP = isIP(hostname);\n    const options  = { host: hostname, port, rejectUnauthorized: false, ...(hostIsIP ? {} : { servername: hostname }) };\n    let settled = false;\n    const done = (result) => { if (!settled) { settled = true; resolve({ hostname, port, ...result }); } };\n\n    try {\n      const socket = tls.connect(options, () => {\n        try {\n          const cert = socket.getPeerCertificate(true);\n          socket.destroy();\n\n          if (!cert || !cert.valid_to) {\n            return done({ status: 'Sem certificado', validTo: null, daysLeft: null, certCN: null, certSANs: null, mismatch: false });\n          }\n\n          const validTo  = new Date(cert.valid_to);\n          const now      = new Date();\n          const daysLeft = Math.floor((validTo - now) / (1000 * 60 * 60 * 24));\n          const certCN   = cert.subject?.CN || null;\n          const certSANs = cert.subjectaltname\n            ? cert.subjectaltname.split(',').map(s => s.trim().replace(/^DNS:/i, '')).filter(s => s && !s.startsWith('IP:'))\n            : [];\n\n          let mismatch = false;\n          if (!hostIsIP) {\n            function covers(host, pattern) {\n              if (pattern.startsWith('*.')) {\n                const base = pattern.slice(2);\n                return host !== base && host.endsWith('.' + base) && host.split('.').length === base.split('.').length + 1;\n              }\n              return host === pattern;\n            }\n            const allNames = [...new Set([certCN, ...certSANs].filter(Boolean))];\n            mismatch = allNames.length > 0 && !allNames.some(n => covers(hostname, n));\n          }\n\n          done({\n            status  : daysLeft <= 0 ? 'Expirado' : 'Válido',\n            validTo : validTo.toLocaleDateString('pt-BR'),\n            daysLeft,\n            certCN,\n            certSANs: certSANs.length > 0 ? certSANs : null,\n            mismatch,\n          });\n        } catch (err) {\n          socket.destroy();\n          done({ status: `Erro leitura: ${err.message}`, validTo: null, daysLeft: null, certCN: null, certSANs: null, mismatch: false });\n        }\n      });\n\n      socket.setTimeout(10000, () => { socket.destroy(); done({ status: 'Timeout',            validTo: null, daysLeft: null, certCN: null, certSANs: null, mismatch: false }); });\n      socket.on('error', (err)   => {                   done({ status: `Erro: ${err.message}`, validTo: null, daysLeft: null, certCN: null, certSANs: null, mismatch: false }); });\n    } catch (err) {\n      done({ status: `Erro: ${err.message}`, validTo: null, daysLeft: null, certCN: null, certSANs: null, mismatch: false });\n    }\n  });\n}\n\nconst resultados = await Promise.all(\n  items\n    .filter(i => {\n      const key = Object.keys(i.json).find(k => k.toLowerCase() === 'domínio' || k.toLowerCase() === 'dominio');\n      return key && i.json[key];\n    })\n    .map(i => {\n      const key = Object.keys(i.json).find(k => k.toLowerCase() === 'domínio' || k.toLowerCase() === 'dominio');\n      const port = getPort(i.json);\n      return checkSSL(i.json[key], port);\n    })\n);\n\n// Cada resultado vira um item separado no n8n — ideal para filtrar no próximo nó\nreturn resultados.map(r => ({ json: r }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        1152
+      ],
+      "id": "21058545-c5c7-41b8-b3e5-af7210a1c182",
+      "name": "SSL Checker"
+    },
+    {
+      "parameters": {
+        "content": "## Spreadsheet \nCreate a spreadsheet in Google Drive containing two columns: domain and port",
+        "height": 176,
+        "width": 272
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2096,
+        1472
+      ],
+      "typeVersion": 1,
+      "id": "3edc4ced-e2ac-4617-8c39-3ba7ecee7f68",
+      "name": "Sticky Note"
+    }
+  ],
+  "pinData": {
+    "Get List SSL": [
+      {
+        "json": {
+          "row_number": 2,
+          "Domínio": "example.com",
+          "porta": 443
+        }
+      },
+      {
+        "json": {
+          "row_number": 3,
+          "Domínio": "sub1.example.com",
+          "porta": 443
+        }
+      },
+      {
+        "json": {
+          "row_number": 4,
+          "Domínio": "sub2.example.com",
+          "porta": 8443
+        }
+      }
+    ]
+  },
+  "connections": {
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Send MSG",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get List SSL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get List SSL": {
+      "main": [
+        [
+          {
+            "node": "SSL Checker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send MSG": {
+      "main": [
+        []
+      ]
+    },
+    "SSL Checker": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}
