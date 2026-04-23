@@ -1,0 +1,7 @@
+Domínio,porta
+example.com,443
+api.example.com,443
+admin.example.com,8443
+streaming.example.com,19888
+edge01.example.com,18500
+edge02.example.com,18500
