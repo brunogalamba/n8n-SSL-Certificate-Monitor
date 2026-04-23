@@ -8,6 +8,10 @@ Workflow do [n8n](https://n8n.io) que monitora diariamente a validade de certifi
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Status](https://img.shields.io/badge/status-stable-brightgreen)
 
+
+<img width="1166" height="628" alt="Captura de Tela 2026-04-23 às 19 47 42" src="https://github.com/user-attachments/assets/6187b44d-21a6-4216-bf9d-fc1dc3f0f5fd" />
+
+
 ---
 
 ## Sumário
@@ -281,6 +285,9 @@ Ideias de melhorias:
 [🇧🇷 Português](#n8n-ssl-certificate-monitor) | **🇺🇸 English**
 
 An [n8n](https://n8n.io) workflow that performs daily SSL/TLS certificate validity checks and sends WhatsApp alerts (via UazAPI) when a certificate is about to expire or has already expired.
+
+<img width="1166" height="628" alt="Captura de Tela 2026-04-23 às 19 47 42" src="https://github.com/user-attachments/assets/0aaf99c0-4749-4508-b6f9-194cdf5d83d7" />
+
 
 ### Table of contents
 
